@@ -311,3 +311,8 @@ class ResNet(nn.Module):
                                       stride = 1, need_expand = False)
             )
         return nn.Sequential(*layers)
+
+def design_resnet34():
+    return ResNet("building", [3,4,6,3], out_size = 10)
+def design_resnet50():
+    return ResNet("bottleneck", [3, 4, 6, 3], out_size = 10)

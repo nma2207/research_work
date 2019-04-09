@@ -33,6 +33,10 @@ class BuildBlock(nn.Module):
                                 nn.Conv2d(input_size, output_size, 1, stride))
         else:
             self.expand = nn.Sequential()
+    def get_inception(input_size, out_size, stride = 1):
+        return nn.Sequential(nn.BatchNorm2d(input_size),
+                            nn.ReLU(),
+                            conv3(input_size, out_size, stride))
 
     
     def forward(self, x):
@@ -72,6 +76,21 @@ class SqueezeExicitationBlock(nn.Module):
         x = self.sigmoid(x)
         x = x.view(x.size(0), -1, 1, 1)
         return x
+class InceptionSE(nn.Module):
+    def __init__(self, input_size, output_size, stride = 1):
+        super(InceptionSE, self).__init__()
+        self.bn = nn.BatchNorm2d(input_size)
+        self.relu = nn.ReLU()
+        self.conv = conv3(input_size, output_size, stride)
+
+        self.se_block = SqueezeExicitationBlock(filter_count = output_size)
+    def forward(self, x):
+        x = self.bn(x)
+        x = self.relu(x)
+        x = self.conv(x)
+
+        se = self.se_block(x)
+        return x * se
 
 class BuildBlockWithSE(nn.Module):
     '''building block c SE веткой
@@ -104,13 +123,15 @@ class BuildBlockWithSE(nn.Module):
         out = self.conv2(out)
 
         se_result = self.se_block(out)
-
         out = out * se_result
         
         x = self.expand(x)
         
         out += x
         return out
+    def get_inception(input_size, output_size, stride = 1):
+        return InceptionSE(input_size, output_size, stride)
+
 class Cifar10ResNet(nn.Module):
     ''' Rsnet
     '''
@@ -129,7 +150,7 @@ class Cifar10ResNet(nn.Module):
         super(Cifar10ResNet, self).__init__()
 
         self.out_size = out_size
-        self.inception = conv3(3, 16, 1)
+        self.inception = BlockType.get_inception(3, 16)
         
         self.avg = nn.AdaptiveAvgPool2d((1,1))
         self.block16 = self.get_basic_blocks(BlockType, 16, 16, n, stride = 1)
@@ -161,11 +182,9 @@ class Cifar10ResNet(nn.Module):
 
         x = x.view(x.size(0), -1)
         x = self.fc(x)
-
         return x
         
 
-        
     def get_basic_blocks(self, BlockType, input_size, size, blocks_count, stride):
         layers = []
         layers.append(BlockType(input_size, size, stride))
@@ -175,11 +194,7 @@ class Cifar10ResNet(nn.Module):
             
         return nn.Sequential(*layers)
 
-def design_resnet34():
-    return ResNet("building", [3,4,6,3], out_size = 10)
-def design_resnet50():
-    return ResNet("bottleneck", [3, 4, 6, 3], out_size = 10)
 def design_resnet110():
-    return Cifar10ResNet(BuildBlock, 18, out_size = 10)
+    return Cifar10ResNet(BuildBlock, 1, out_size = 10)
 def design_se110():
     return Cifar10ResNet(BuildBlockWithSE, 18, out_size=10)

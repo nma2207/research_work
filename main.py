@@ -83,10 +83,13 @@ def weight_init(m):
         nn.init.normal_(m.weight.data, 0, math.sqrt(2./n))
         nn.init.uniform_(m.bias.data, -math.sqrt(2./n), math.sqrt(2./n))
 
-def get_schedulder(optimizer, milstones, gamma0, gamma1):
-    func = lambda epoch: gamma0 if epoch < milstones[0] \
-            else gamma1 ** bisect_right(milstones[1:], epoch)
+def get_lr(epoch, milstones, l_rates):
+    assert(len(l_rates) == len(milstones) + 1, "Length of rates must be mil +1")
+    i = bisect_right(milstones, epoch)
+    return l_rates[i]
 
+def get_schedulder(optimizer, milstones, l_rates):
+    func = lambda epoch: get_lr(epoch, milstones, l_rates)
     return optim.lr_scheduler.LambdaLR(optimizer, func)
 
                
@@ -98,7 +101,7 @@ def train_and_test():
     # ВСЕ КОНСТАНТЫ ПИСАТЬ СЮДА, ЧТОБЫ ПОТОМ НЕ ИСКАТЬ ПО ВСЕМУ ПОЛОТНУ!!!
     #
     
-    batch_size = 256
+    batch_size = 1
     learning_rate = 0.1
     #learning_rate_decay = 0.975
     momentum = 0.9
@@ -154,13 +157,14 @@ def train_and_test():
     criterion = nn.CrossEntropyLoss()
 
     start_epoch = 0
-    resnet32 = resnet.design_se110()
+    print("design")
+    resnet32 = resnet.design_resnet110()
     resnet32.apply(weight_init)
     optimizer = optim.SGD(resnet32.parameters(), lr = learning_rate, 
                           momentum = momentum, weight_decay = weight_decay,
                           nesterov = nesterov)
 
-
+    print(type(resnet32))
     
     #resnet32 = resnet32.cuda()
     
@@ -174,7 +178,7 @@ def train_and_test():
     resnet32.train()
     
     
-    scheduler = get_schedulder(optimizer, thresholds, gamma0, gamma1)
+    scheduler = get_schedulder(optimizer, [5, 90, 130], [0.01, 0.1, 0.01, 0.001])
     #scheduler = optim.lr_scheduler.MultiStepLR(
     #    optimizer, milestones=[82, 123], gamma = gamma)
     #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
@@ -209,6 +213,7 @@ def train_and_test():
             outputs = resnet32(inputs)
             
             loss = criterion(outputs, labels)
+            print(type(loss))
             #quit()
             loss.backward()
             optimizer.step()
@@ -238,8 +243,8 @@ def test_se_block():
 def test_lr():
     resnet32 = resnet.design_resnet110()
     resnet32.apply(weight_init)
-    optimizer = optim.SGD(resnet32.parameters(), lr = 0.1)
-    schedulder = get_schedulder(optimizer, [5, 90, 130], 0.1, 0.1)
+    optimizer = optim.SGD(resnet32.parameters(), lr = 1)
+    schedulder = get_schedulder(optimizer, [5, 90, 130], [0.01, 0.1, 0.01, 0.001])
     for epoch in range(0, 200):
         schedulder.step(epoch)
         for param_group in optimizer.param_groups:
