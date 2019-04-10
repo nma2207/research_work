@@ -101,19 +101,19 @@ def train_and_test():
     # ВСЕ КОНСТАНТЫ ПИСАТЬ СЮДА, ЧТОБЫ ПОТОМ НЕ ИСКАТЬ ПО ВСЕМУ ПОЛОТНУ!!!
     #
     
-    batch_size = 1
-    learning_rate = 0.1
+    batch_size = 128
+    learning_rate = 1
     #learning_rate_decay = 0.975
     momentum = 0.9
-    weight_decay = 0.005
+    weight_decay = 0.0001
     epoch_count = 200
     nesterov = False
-    step_size = 10
-    gamma0 = 0.1
-    gamma1 = 0.1
-    thresholds = [5, 91, 136]
     
-    model_path = 'drive/course_work/models/31-03-19-model_new'
+    thresholds = [1, 102, 136]
+    learning_rates = [0.01, 0.1, 0.01, 0.001]
+    train_part = 0.9
+    
+    model_path = 'drive/course_work/models/10-04-19-model_new'
     old_path = 'drive/course_work/models/15-03-19-model_new'
     
     # generate train dataset
@@ -123,14 +123,14 @@ def train_and_test():
         transforms.ColorJitter(0.2, 0.2, 0.2, 0.2),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
-        transforms.Normalize(mean = (0.4914, 0.4822, 0.4465),
-                            std = (0.2023, 0.1994, 0.2010))
+        transforms.Normalize(mean = (0.5, 0.5, 0.5),
+                            std = (1.0, 1.0, 1.0))
     ])
 
     test_transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(mean = (0.4914, 0.4822, 0.4465), 
-                            std = (0.2023, 0.1994, 0.2010))
+        transforms.Normalize(mean = (0.5, 0.5, 0.5), 
+                            std = (1.0, 1.0, 1.0))
     ])
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
@@ -139,11 +139,12 @@ def train_and_test():
     trainset_param = torchvision.datasets.CIFAR10(root='./data', train=True,
                                         download=True, transform=test_transform)
 
-    train_idxs, valid_idxs = get_train_valid_idxs(len(trainset), 0.8)
+    train_idxs, valid_idxs = get_train_valid_idxs(len(trainset), train_part)
 
     train_subset = Subset(trainset, train_idxs)
     train_subset_param = Subset(trainset_param, train_idxs)
     valid_subset = Subset(trainset_param, valid_idxs)
+    print("Dataset sizes:", len(train_subset), len(valid_subset))
 
     train_subset_loader = DataLoader(train_subset, batch_size=batch_size, 
                                     shuffle=True, num_workers=2)
@@ -157,14 +158,14 @@ def train_and_test():
     criterion = nn.CrossEntropyLoss()
 
     start_epoch = 0
-    print("design")
-    resnet32 = resnet.design_resnet110()
+    resnet32 = design_se110()
     resnet32.apply(weight_init)
+    resnet32 = resnet32.to(device)
     optimizer = optim.SGD(resnet32.parameters(), lr = learning_rate, 
                           momentum = momentum, weight_decay = weight_decay,
                           nesterov = nesterov)
 
-    print(type(resnet32))
+
     
     #resnet32 = resnet32.cuda()
     
@@ -177,8 +178,7 @@ def train_and_test():
     
     resnet32.train()
     
-    
-    scheduler = get_schedulder(optimizer, [5, 90, 130], [0.01, 0.1, 0.01, 0.001])
+    scheduler = get_schedulder(optimizer, thresholds, learning_rates)
     #scheduler = optim.lr_scheduler.MultiStepLR(
     #    optimizer, milestones=[82, 123], gamma = gamma)
     #scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
@@ -186,6 +186,15 @@ def train_and_test():
     #optimizer.load_state_dict(checkpoint['optimizer'])
     for param_group in optimizer.param_groups:
         print(param_group['lr'])
+        
+    losses = {
+        'train': [],
+        'valid': []
+    }
+    accuracies = {
+        'train': [],
+        'valid': []
+    }
     
     train_loss, train_accuracy = get_train_params(resnet32, criterion,
                                         train_subset_param_loader, batch_size)
@@ -198,22 +207,36 @@ def train_and_test():
     print('\tValid accuracy: {0:.10f}'.format(valid_accuracy))
     print('#', '~'*40, '#')
     print('Start training')
+    #return
+    #tbc.save_value("loss", "train", start_epoch, train_loss)
+    #tbc.save_value("loss", "valid",start_epoch, valid_loss)
+    #tbc.save_value("accuracy", "train", start_epoch, train_accuracy)
+    #tbc.save_value("accuracy", "valid", start_epoch, valid_accuracy)
+    
+    losses['train'].append(train_loss)
+    losses['valid'].append(valid_loss)
+    accuracies['train'].append(train_accuracy)
+    accuracies['valid'].append(valid_accuracy)
+    
+    
 
     for epoch in range(start_epoch, epoch_count):
         scheduler.step(epoch)
         for param_group in optimizer.param_groups:
             print(param_group['lr'])
-        
+
         for i, data in enumerate(train_subset_loader, 0):
-            
             inputs, labels = data
             
+            #inputs = inputs.to(device)
+            #labels = labels.to(device)
+            
+
             optimizer.zero_grad()
             #print(inputs.size())
             outputs = resnet32(inputs)
             
             loss = criterion(outputs, labels)
-            print(type(loss))
             #quit()
             loss.backward()
             optimizer.step()
@@ -230,24 +253,31 @@ def train_and_test():
         print('\tTrain accuracy: {0:.10f}'.format(train_accuracy))
         print('\tValid accuracy: {0:.10f}'.format(valid_accuracy))
         print('#', '~'*40, '#')
-    
+        # to Tensorboard
+        #tbc.save_value("loss", "train", epoch+1, train_loss)
+        #tbc.save_value("loss", "valid", epoch+1, valid_loss)
+        #tbc.save_value("accuracy", "train", epoch+1, train_accuracy)
+        #tbc.save_value("accuracy", "valid", epoch+1, valid_accuracy)
+        # to save
+        losses['train'].append(train_loss)
+        losses['valid'].append(valid_loss)
+        accuracies['train'].append(train_accuracy)
+        accuracies['valid'].append(valid_accuracy)
+        torch.save({
+            'epoch': epoch,
+            'model': resnet32.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'train_idxs': train_idxs,
+            'valid_idxs':  valid_idxs,
+            'loss': losses,
+            'accuracy': accuracies
+        }, model_path)
+
+            
     print('Finish training')
 
-def test_se_block():
-    a = torch.randn(5, 16, 2, 2)
-    seblock = SqueezeExicitationBlock(2, 16)
-    x = seblock(a)
-    print('x=',x)
-    print('a=',a)
-    print('a*x=',a*x)
-def test_lr():
-    resnet32 = resnet.design_resnet110()
-    resnet32.apply(weight_init)
-    optimizer = optim.SGD(resnet32.parameters(), lr = 1)
-    schedulder = get_schedulder(optimizer, [5, 90, 130], [0.01, 0.1, 0.01, 0.001])
-    for epoch in range(0, 200):
-        schedulder.step(epoch)
-        for param_group in optimizer.param_groups:
-            print(epoch, param_group['lr'])
+train_and_test()
+
+
 if __name__ == "__main__":
-    train_and_test()
+    test_save()

@@ -76,18 +76,20 @@ class SqueezeExicitationBlock(nn.Module):
         x = self.sigmoid(x)
         x = x.view(x.size(0), -1, 1, 1)
         return x
+
 class InceptionSE(nn.Module):
     def __init__(self, input_size, output_size, stride = 1):
         super(InceptionSE, self).__init__()
-        self.bn = nn.BatchNorm2d(input_size)
+        self.bn = nn.BatchNorm2d(output_size)
         self.relu = nn.ReLU()
         self.conv = conv3(input_size, output_size, stride)
 
         self.se_block = SqueezeExicitationBlock(filter_count = output_size)
     def forward(self, x):
+        x = self.conv(x)
         x = self.bn(x)
         x = self.relu(x)
-        x = self.conv(x)
+        
 
         se = self.se_block(x)
         return x * se
@@ -100,35 +102,40 @@ class BuildBlockWithSE(nn.Module):
         super(BuildBlockWithSE, self).__init__()
         self.conv1 = conv3(input_size, output_size, stride)
         self.conv2 = conv3(output_size, output_size)
-        self.bn1 = nn.BatchNorm2d(input_size)
+        self.bn1 = nn.BatchNorm2d(output_size)
         self.bn2 = nn.BatchNorm2d(output_size)
+        self.relu = nn.ReLU()
 
         self.se_block = SqueezeExicitationBlock(filter_count = output_size)
         
         if stride != 1:
-            self.expand = nn.Sequential(nn.BatchNorm2d(input_size),
-                                nn.Conv2d(input_size, output_size, 1, stride))
+            self.expand = nn.Sequential(
+                nn.Conv2d(input_size, output_size, 1, stride),
+                nn.BatchNorm2d(output_size),
+            )
         else:
             self.expand = nn.Sequential()
 
     
     def forward(self, x):
         #bn->relu->conv->bn->relu->conv
-        out = self.bn1(x)
-
-        out = functional.relu(out)
-        out = self.conv1(out)
-        out = self.bn2(out)
-        out = functional.relu(out)
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        
         out = self.conv2(out)
-
+        out = self.bn2(out)
+        
+        
         se_result = self.se_block(out)
         out = out * se_result
         
         x = self.expand(x)
-        
         out += x
+        
+        out = self.relu(out)
         return out
+    
     def get_inception(input_size, output_size, stride = 1):
         return InceptionSE(input_size, output_size, stride)
 
